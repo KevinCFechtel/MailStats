@@ -2,85 +2,123 @@ package main
 
 import (
 	"context"
-	"flag"
-	"fmt"
 
-	imapHandler "github.com/KevinCFechtel/ImapArchive/functions/imapHandler"
-	Configuration "github.com/KevinCFechtel/ImapArchive/models/configurationStruct"
-	Logger "github.com/KevinCFechtel/ImapArchive/models/logger"
+	imapHandler "github.com/KevinCFechtel/MailStats/functions/imapHandler"
+	Configuration "github.com/KevinCFechtel/MailStats/models/configurationStruct"
 	configHandler "github.com/KevinCFechtel/goConfigHandler"
-	"github.com/go-co-op/gocron/v2"
+	"github.com/pterm/pterm"
 )
 
 func main() {
-	var configFilePath string
-	var runAsService bool
-	flag.StringVar(&configFilePath, "configFile", "config.json", "File Path to config File!")
-	flag.BoolVar(&runAsService, "runAsService", false, "Run imaparchive as a service")
-	flag.Parse()
+	mailbox := "INBOX"
+	options := []string{"List Mailboxes", "Select Mailbox", "List Top 10 Sender", "List Top 10 biggest Mails", "Exit"}
+	pterm.Printfln("Please provide the path to the config file:")
+	configFilePath, _ := pterm.DefaultInteractiveTextInput.WithDefaultValue("config.json").Show()
+	pterm.Println()
 	
-	ctx := context.Background()
-
 	configuration := Configuration.CreateNewConfiguration()
 	configHandler.GetConfig("localFile", configFilePath, &configuration, "File not found")
-	
-	logger := Logger.NewLogger(configuration.Logurl)
-	
-	if(runAsService) {
-		s, err := gocron.NewScheduler()
-		if err != nil {
-			logger.LogThis("Failed to start scheduler: " + err.Error(), true)
-		}
-		defer func() { _ = s.Shutdown() }()
-		_, err = s.NewJob(
-			gocron.CronJob(
-				configuration.CronScheduleConfig,
-				false,
-			),
-			gocron.NewTask(
-				func() {
-					arichvedMails, err := archiveMails(configuration, logger, ctx)
-					if(err != nil) {
-						logger.LogThis("Run unsuccesfully, moved " + fmt.Sprint(arichvedMails) + " Messages", false)
-					} else {
-						logger.LogThis("Run succesfully, moved " + fmt.Sprint(arichvedMails) + " Messages", false)
-					}
-				},
-			),
-		)
-		if err != nil {
-			logger.LogThis("Failed to config scheduler job: " + err.Error(), true)
-		}
-		s.Start()
-		select {} // wait forever
-	} else {
-		arichvedMails, err := archiveMails(configuration, logger, ctx)
-		if(err != nil) {
-			logger.LogThis("Run unsuccesfully, moved " + fmt.Sprint(arichvedMails) + " Messages", false)
-		} else {
-			logger.LogThis("Run succesfully, moved " + fmt.Sprint(arichvedMails) + " Messages", false)
+	selectedOption := ""
+	for selectedOption != "Exit" {
+		selectedOption, _ = pterm.DefaultInteractiveSelect.WithOptions(options).Show()
+		switch selectedOption {
+			case "List Mailboxes": 
+				listMailboxes(configuration)
+			case "Select Mailbox": 
+				mailbox, _ = pterm.DefaultInteractiveTextInput.WithDefaultValue("INBOX").Show()
+				pterm.Println()
+				pterm.Printfln("Selected Mailbox: %s", mailbox)
+			case "List Top 10 Sender": 
+				listTopTenSender(configuration, mailbox)
+			case "List Top 10 biggest Mails": 
+				listTopTenBiggsetMails(configuration, mailbox)
 		}
 	}
 }
 
-func archiveMails(configuration Configuration.Configuration, logger *Logger.Logger, ctx context.Context) (int,error) {
-	countArchiveMessages := 0
-	imapServer := imapHandler.NewImapServer(configuration.GetServerURI(), configuration.User, configuration.Pass, configuration.TLS, logger, ctx)
+func listTopTenSender(configuration Configuration.Configuration, mailbox string) {
+	ctx := context.Background()
+	imapServer := imapHandler.NewImapServer(configuration.GetServerURI(), configuration.User, configuration.Pass, configuration.TLS, ctx)
 	err := imapServer.Connect()
 	if(err != nil) {
-		return 0, err
+		pterm.Fatal.PrintOnError("Failed to connect: " + err.Error(), true)
+		return
 	}
 
 	err = imapServer.Login()
 	if(err != nil) {
-		return 0, err
+		pterm.Fatal.PrintOnError("Failed to login: " + err.Error(), true)
+		return
 	}
-	
-	for _, s := range configuration.MailboxDurations {
-		arichvedMessages, _ := imapServer.ArchiveMessages(s.SourceMailbox, s.Duration, s.DestMailbox)
-		countArchiveMessages = countArchiveMessages + arichvedMessages
+
+	senders, err := imapServer.GetTopTenSenders(mailbox)
+	if(err != nil) {
+		pterm.Fatal.PrintOnError("Failed to get top senders: " + err.Error(), true)
+		return
+	}
+
+	pterm.Printfln("Top 10 Senders in mailbox %s:", mailbox)
+	for sender, count := range senders {
+		pterm.Printfln("%s: %d mails", sender, count)
 	}
 
 	imapServer.Logout()
-	return countArchiveMessages, nil
+}
+
+func listTopTenBiggsetMails(configuration Configuration.Configuration, mailbox string) {
+	ctx := context.Background()
+	imapServer := imapHandler.NewImapServer(configuration.GetServerURI(), configuration.User, configuration.Pass, configuration.TLS, ctx)
+	err := imapServer.Connect()
+	if(err != nil) {
+		pterm.Fatal.PrintOnError("Failed to connect: " + err.Error(), true)
+		return
+	}
+
+	err = imapServer.Login()
+	if(err != nil) {
+		pterm.Fatal.PrintOnError("Failed to login: " + err.Error(), true)
+		return
+	}
+
+	mails, err := imapServer.GetTopTenBiggestMails(mailbox)
+	if(err != nil) {
+		pterm.Fatal.PrintOnError("Failed to get top biggest mails: " + err.Error(), true)
+		return
+	}
+
+	pterm.Printfln("Top 10 biggest mails in mailbox %s:", mailbox)
+	for subject, size := range mails {
+		pterm.Printfln("Subject: %s, Size: %d bytes", subject, size)
+	}
+
+	imapServer.Logout()
+}
+
+func listMailboxes(configuration Configuration.Configuration) {
+	ctx := context.Background()
+	imapServer := imapHandler.NewImapServer(configuration.GetServerURI(), configuration.User, configuration.Pass, configuration.TLS, ctx)
+	err := imapServer.Connect()
+	if(err != nil) {
+		pterm.Fatal.PrintOnError("Failed to connect: " + err.Error(), true)
+		return
+	}
+
+	err = imapServer.Login()
+	if(err != nil) {
+		pterm.Fatal.PrintOnError("Failed to login: " + err.Error(), true)
+		return
+	}
+
+	mailboxes, err := imapServer.GetMailboxes()
+	if(err != nil) {
+		pterm.Fatal.PrintOnError("Failed to list mailboxes: " + err.Error(), true)
+		return
+	}
+
+	pterm.Printfln("Mailboxes:")
+	for _, mailbox := range mailboxes {
+		pterm.Printfln("- %s", mailbox)
+	}
+
+	imapServer.Logout()
 }

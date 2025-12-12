@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	Logger "github.com/KevinCFechtel/ImapArchive/models/logger"
 	imap "github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
 )
@@ -15,18 +14,16 @@ type ImapServer struct {
     pass    string
 	tls     bool
 	cliente *client.Client
-	logger *Logger.Logger
 	context context.Context
 }
 
 
-func NewImapServer( server string, user string, pass string, tls bool, logger *Logger.Logger, ctx context.Context) *ImapServer {
+func NewImapServer( server string, user string, pass string, tls bool, ctx context.Context) *ImapServer {
     imapServer := &ImapServer{}
 	imapServer.server = server
     imapServer.user = user
     imapServer.pass = pass
 	imapServer.tls = tls
-	imapServer.logger = logger
 	imapServer.context = ctx
 
     return imapServer
@@ -45,7 +42,6 @@ func (imapServer *ImapServer) Connect() error {
 	}
 
 	if err != nil {
-		imapServer.logger.LogThis("Failed to Dial: " + err.Error(), true)
 		return err
 	}
 
@@ -55,7 +51,6 @@ func (imapServer *ImapServer) Connect() error {
 
 func (imapServer *ImapServer) Login() error {
     if err := imapServer.cliente.Login(imapServer.user, imapServer.pass); err != nil {
-		imapServer.logger.LogThis("Failed to Login: " + err.Error(), true)
 		return err
     }
 	return nil
@@ -64,7 +59,6 @@ func (imapServer *ImapServer) Login() error {
 func (imapServer *ImapServer) setLabelBox(label string) (*imap.MailboxStatus, error) {
     mailbox, err := imapServer.cliente.Select(label, false)
     if err != nil {
-		imapServer.logger.LogThis("Failed to Select Mailbox: " + err.Error(), true)
 		return nil, err
     }
     return mailbox, err
@@ -87,7 +81,6 @@ func (imapServer *ImapServer) ArchiveMessages(sourceMailbox string, duration int
 
 	uids, err := imapServer.cliente.UidSearch(criteria)
 	if err != nil {
-		imapServer.logger.LogThis("Failed to Search UID: " + err.Error(), true)
 		return 0, err
 	}
 	seqSet := new(imap.SeqSet)
@@ -99,13 +92,11 @@ func (imapServer *ImapServer) ArchiveMessages(sourceMailbox string, duration int
 	if len(uids) > 0 {
 		go func() {
 			if err := imapServer.cliente.UidFetch(seqSet, items, messages); err != nil {
-				imapServer.logger.LogThis("Failed to Fetch UID: " + err.Error(), true)
 			}
 		}()
 		seqSetArchive := new(imap.SeqSet)
 		for message := range messages {
 			if message == nil {
-				imapServer.logger.LogThis("Server didn't returned message", true)
 			} else {
 				seqSetArchive.AddNum(message.SeqNum)
 				//armored, err := helper.SignCleartextMessageArmored(unlockedKeyObj, passphrase, message.Body)
@@ -114,19 +105,57 @@ func (imapServer *ImapServer) ArchiveMessages(sourceMailbox string, duration int
 
 		err = imapServer.cliente.Move(seqSetArchive, destMailbox)
 		if err != nil {
-			imapServer.logger.LogThis("Failed to Move: " + err.Error(), true)
 		}
 	}
 
 	return len(uids), nil
 }
 
-func (imapServer *ImapServer) Logout() {
+func (imapServer *ImapServer) GetMailboxes() ([]string, error) {
+	mailboxes := []string{}
+	mailboxChan := make(chan *imap.MailboxInfo, 10)
+	done := make(chan error, 1)
+	go func() {
+		done <- imapServer.cliente.List("", "*", mailboxChan)
+	}()
+
+	for m := range mailboxChan {
+		mailboxes = append(mailboxes, m.Name)
+	}
+
+	if err := <-done; err != nil {
+		return nil, err
+	}
+	return mailboxes, nil
+}
+
+func (imapServer *ImapServer) SelectMailbox(mailbox string) (*imap.MailboxStatus, error) {
+	selectedMailbox, err := imapServer.cliente.Select(mailbox, false)
+	if err != nil {
+		return nil, err
+	}
+	return selectedMailbox, nil
+}
+
+func (imapServer *ImapServer) GetTopTenSenders(mailbox string) (map[string]int, error) {
+	// Get the top ten senders from the specified mailbox
+	
+
+	return nil, nil
+}
+
+func (imapServer *ImapServer) GetTopTenBiggestMails(mailbox string) (map[string]int, error) {
+
+	return nil, nil
+}
+
+func (imapServer *ImapServer) Logout() error {
     if err := imapServer.cliente.Close(); err != nil {
-		imapServer.logger.LogThis("Failed to Close: " + err.Error(), true)
+		return err
     }
     
     if err := imapServer.cliente.Logout(); err != nil {
-		imapServer.logger.LogThis("Failed to Logout: " + err.Error(), true)
+		return err
     }
+	return nil;
 }
