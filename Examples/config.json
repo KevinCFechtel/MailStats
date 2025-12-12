@@ -1,0 +1,16 @@
+{
+    "server": "server",
+    "port": "993",
+    "user": "user",
+    "pass": "pass",
+    "tls": false,
+    "durations": [
+        {
+            "destMailbox": "Archive",
+            "sourceMailbox": "INBOX",
+            "duration": 365
+        }
+    ],
+    "logurl": "GoogleCloudServiceAccount JSON",
+    "cronScheduleConfig": "0 1 * * *"
+}
