@@ -2,7 +2,9 @@ package imapHandler
 
 import (
 	"context"
+	"log"
 	"sort"
+	"time"
 
 	imap "github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -112,30 +114,48 @@ func (imapServer *ImapServer) GetTopTenSenders(mailbox string) (error) {
 	}
 
 	criteria := imap.NewSearchCriteria()
-	//criteria.WithoutFlags = []string{"\\Deleted"}
+	criteria.WithoutFlags = []string{"\\Deleted"}
 
 	uids, err := imapServer.cliente.UidSearch(criteria)
 	if err != nil {
 		return err
 	}
-	seqSet := new(imap.SeqSet)
-	seqSet.AddNum(uids...)
-	section := &imap.BodySectionName{}
-	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, section.FetchItem()}
-	messages := make(chan *imap.Message)
+	
 			
 	if len(uids) > 0 {
-		go func() {
-			if err := imapServer.cliente.UidFetch(seqSet, items, messages); err != nil {
-				pterm.Fatal.PrintOnError("Failed to get top senders: " + err.Error(), true)
+		var chunks [][]uint32
+		chunkSize := 4000
+		for i := 0; i < len(uids); i += chunkSize {
+			end := i + chunkSize
+
+			// necessary check to avoid slicing beyond
+			// slice capacity
+			if end > len(uids) {
+				end = len(uids)
 			}
-		}()
-		for message := range messages {
-			if message != nil {
-				if len(message.Envelope.Sender) > 0 {
-					senders[message.Envelope.Sender[0].Address()]++
+
+			chunks = append(chunks, uids[i:end])
+		}
+		for _, chunk := range chunks {
+			seqSet := new(imap.SeqSet)
+			section := &imap.BodySectionName{}
+			items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, section.FetchItem()}
+			messages := make(chan *imap.Message)
+			seqSet.AddNum(chunk...)
+			go func() {
+				err := imapServer.cliente.UidFetch(seqSet, items, messages)
+				if err != nil {
+					log.Println("ERROR!!!: ", err)
+				}
+			}()
+			for message := range messages {
+				if message != nil {
+					if len(message.Envelope.Sender) > 0 {
+						senders[message.Envelope.Sender[0].Address()]++
+					}
 				}
 			}
+			time.Sleep(8 * time.Second)
 		}
 	}
 
