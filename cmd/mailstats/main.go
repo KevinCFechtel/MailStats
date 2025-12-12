@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	imapHandler "github.com/KevinCFechtel/MailStats/functions/imapHandler"
 	Configuration "github.com/KevinCFechtel/MailStats/models/configurationStruct"
@@ -20,14 +21,14 @@ func main() {
 	configHandler.GetConfig("localFile", configFilePath, &configuration, "File not found")
 	selectedOption := ""
 	for selectedOption != "Exit" {
+		pterm.Printfln("Selected Mailbox: %s", mailbox)
 		selectedOption, _ = pterm.DefaultInteractiveSelect.WithOptions(options).Show()
 		switch selectedOption {
 			case "List Mailboxes": 
 				listMailboxes(configuration)
 			case "Select Mailbox": 
-				mailbox, _ = pterm.DefaultInteractiveTextInput.WithDefaultValue("INBOX").Show()
+				mailbox, _ = pterm.DefaultInteractiveTextInput.Show()
 				pterm.Println()
-				pterm.Printfln("Selected Mailbox: %s", mailbox)
 			case "List Top 10 Sender": 
 				listTopTenSender(configuration, mailbox)
 			case "List Top 10 biggest Mails": 
@@ -37,6 +38,8 @@ func main() {
 }
 
 func listTopTenSender(configuration Configuration.Configuration, mailbox string) {
+	start := time.Now()
+	introSpinner, _ := pterm.DefaultSpinner.WithShowTimer(true).WithRemoveWhenDone(false).Start("Waiting for results for mailbox: " + mailbox + " ...")
 	ctx := context.Background()
 	imapServer := imapHandler.NewImapServer(configuration.GetServerURI(), configuration.User, configuration.Pass, configuration.TLS, ctx)
 	err := imapServer.Connect()
@@ -51,21 +54,20 @@ func listTopTenSender(configuration Configuration.Configuration, mailbox string)
 		return
 	}
 
-	senders, err := imapServer.GetTopTenSenders(mailbox)
+	err = imapServer.GetTopTenSenders(mailbox)
 	if(err != nil) {
 		pterm.Fatal.PrintOnError("Failed to get top senders: " + err.Error(), true)
 		return
 	}
 
-	pterm.Printfln("Top 10 Senders in mailbox %s:", mailbox)
-	for sender, count := range senders {
-		pterm.Printfln("%s: %d mails", sender, count)
-	}
-
 	imapServer.Logout()
+	elapsed := time.Since(start)
+	introSpinner.Success("Completed in " + elapsed.Round(time.Second).String())
 }
 
 func listTopTenBiggsetMails(configuration Configuration.Configuration, mailbox string) {
+	start := time.Now()
+	introSpinner, _ := pterm.DefaultSpinner.WithShowTimer(true).WithRemoveWhenDone(false).Start("Waiting for results for mailbox: " + mailbox + " ...")
 	ctx := context.Background()
 	imapServer := imapHandler.NewImapServer(configuration.GetServerURI(), configuration.User, configuration.Pass, configuration.TLS, ctx)
 	err := imapServer.Connect()
@@ -80,18 +82,15 @@ func listTopTenBiggsetMails(configuration Configuration.Configuration, mailbox s
 		return
 	}
 
-	mails, err := imapServer.GetTopTenBiggestMails(mailbox)
+	err = imapServer.GetTopTenBiggestMails(mailbox)
 	if(err != nil) {
-		pterm.Fatal.PrintOnError("Failed to get top biggest mails: " + err.Error(), true)
+		pterm.Fatal.PrintOnError("Failed to get top senders: " + err.Error(), true)
 		return
 	}
 
-	pterm.Printfln("Top 10 biggest mails in mailbox %s:", mailbox)
-	for subject, size := range mails {
-		pterm.Printfln("Subject: %s, Size: %d bytes", subject, size)
-	}
-
 	imapServer.Logout()
+	elapsed := time.Since(start)
+	introSpinner.Success("Completed in " + elapsed.Round(time.Second).String())
 }
 
 func listMailboxes(configuration Configuration.Configuration) {
