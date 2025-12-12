@@ -3,7 +3,6 @@ package imapHandler
 import (
 	"context"
 	"sort"
-	"time"
 
 	imap "github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -86,53 +85,6 @@ func (imapServer *ImapServer) setLabelBox(label string) (*imap.MailboxStatus, er
     return mailbox, err
 }
 
-func (imapServer *ImapServer) ArchiveMessages(sourceMailbox string, duration int, destMailbox string) (int, error) {
-	beforeCriteria := time.Now()
-	if duration != 0 {
-		daysToPreserve := duration * -1
-		beforeCriteria = time.Now().AddDate(0, 0, daysToPreserve)
-	}
-	
-	_, err := imapServer.setLabelBox(sourceMailbox)
-	if(err != nil) {
-		return 0, err
-	}
-
-	criteria := imap.NewSearchCriteria()
-	criteria.Before = beforeCriteria
-
-	uids, err := imapServer.cliente.UidSearch(criteria)
-	if err != nil {
-		return 0, err
-	}
-	seqSet := new(imap.SeqSet)
-	seqSet.AddNum(uids...)
-	section := &imap.BodySectionName{}
-	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, section.FetchItem()}
-	messages := make(chan *imap.Message)
-			
-	if len(uids) > 0 {
-		go func() {
-			if err := imapServer.cliente.UidFetch(seqSet, items, messages); err != nil {
-			}
-		}()
-		seqSetArchive := new(imap.SeqSet)
-		for message := range messages {
-			if message == nil {
-			} else {
-				seqSetArchive.AddNum(message.SeqNum)
-				//armored, err := helper.SignCleartextMessageArmored(unlockedKeyObj, passphrase, message.Body)
-			}
-		}
-
-		err = imapServer.cliente.Move(seqSetArchive, destMailbox)
-		if err != nil {
-		}
-	}
-
-	return len(uids), nil
-}
-
 func (imapServer *ImapServer) GetMailboxes() ([]string, error) {
 	mailboxes := []string{}
 	mailboxChan := make(chan *imap.MailboxInfo, 10)
@@ -160,7 +112,7 @@ func (imapServer *ImapServer) GetTopTenSenders(mailbox string) (error) {
 	}
 
 	criteria := imap.NewSearchCriteria()
-	criteria.WithoutFlags = []string{"\\Deleted"}
+	//criteria.WithoutFlags = []string{"\\Deleted"}
 
 	uids, err := imapServer.cliente.UidSearch(criteria)
 	if err != nil {
@@ -175,6 +127,7 @@ func (imapServer *ImapServer) GetTopTenSenders(mailbox string) (error) {
 	if len(uids) > 0 {
 		go func() {
 			if err := imapServer.cliente.UidFetch(seqSet, items, messages); err != nil {
+				pterm.Fatal.PrintOnError("Failed to get top senders: " + err.Error(), true)
 			}
 		}()
 		for message := range messages {
@@ -205,7 +158,7 @@ func (imapServer *ImapServer) GetTopTenSenders(mailbox string) (error) {
 
 func (imapServer *ImapServer) GetTopTenBiggestMails(mailbox string) error {
 	// Get the top ten senders from the specified mailbox
-	senders := make(map[string]uint32)
+	messageSizes := make(map[string]uint32)
 	_, err := imapServer.setLabelBox(mailbox)
 	if(err != nil) {
 		return err
@@ -231,13 +184,13 @@ func (imapServer *ImapServer) GetTopTenBiggestMails(mailbox string) error {
 		}()
 		for message := range messages {
 			if message != nil {
-				senders[message.Envelope.Subject] = message.Size
+				messageSizes[message.Envelope.Subject] = message.Size
 			}
 		}
 	}
 
 	var es entriesSize
-    for k, v := range senders {
+    for k, v := range messageSizes {
         es = append(es, entrySize{val: v, key: k})
     }
 
