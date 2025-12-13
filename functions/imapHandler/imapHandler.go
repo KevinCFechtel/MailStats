@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sort"
+	"strconv"
 	"time"
 
 	imap "github.com/emersion/go-imap"
@@ -105,7 +106,7 @@ func (imapServer *ImapServer) GetMailboxes() ([]string, error) {
 	return mailboxes, nil
 }
 
-func (imapServer *ImapServer) GetTopTenSenders(mailbox string) (error) {
+func (imapServer *ImapServer) GetTopTenSenders(mailbox string, amount int) (error) {
 	// Get the top ten senders from the specified mailbox
 	senders := make(map[string]int)
 	_, err := imapServer.setLabelBox(mailbox)
@@ -166,9 +167,9 @@ func (imapServer *ImapServer) GetTopTenSenders(mailbox string) (error) {
 
     sort.Sort(sort.Reverse(es))
 
-	pterm.Printfln("Top 10 Senders in mailbox %s:", mailbox)
+	pterm.Printfln("Top " +  strconv.Itoa(amount) + " Senders in mailbox %s:", mailbox)
     for count, e := range es {
-		if count < 10 {
+		if count < amount {
 			pterm.Printfln("%s: %d mails", e.key, e.val)
 		}
     }
@@ -176,7 +177,7 @@ func (imapServer *ImapServer) GetTopTenSenders(mailbox string) (error) {
 	return nil
 }
 
-func (imapServer *ImapServer) GetTopTenBiggestMails(mailbox string) error {
+func (imapServer *ImapServer) GetTopTenBiggestMails(mailbox string, amount int) error {
 	// Get the top ten senders from the specified mailbox
 	messageSizes := make(map[string]uint32)
 	_, err := imapServer.setLabelBox(mailbox)
@@ -191,21 +192,37 @@ func (imapServer *ImapServer) GetTopTenBiggestMails(mailbox string) error {
 	if err != nil {
 		return err
 	}
-	seqSet := new(imap.SeqSet)
-	seqSet.AddNum(uids...)
-	section := &imap.BodySectionName{}
-	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, section.FetchItem(), imap.FetchRFC822Size}
-	messages := make(chan *imap.Message)
 			
 	if len(uids) > 0 {
-		go func() {
-			if err := imapServer.cliente.UidFetch(seqSet, items, messages); err != nil {
+		var chunks [][]uint32
+		chunkSize := 4000
+		for i := 0; i < len(uids); i += chunkSize {
+			end := i + chunkSize
+
+			// necessary check to avoid slicing beyond
+			// slice capacity
+			if end > len(uids) {
+				end = len(uids)
 			}
-		}()
-		for message := range messages {
-			if message != nil {
-				messageSizes[message.Envelope.Subject] = message.Size
+
+			chunks = append(chunks, uids[i:end])
+		}
+		for _, chunk := range chunks {
+			seqSet := new(imap.SeqSet)
+			section := &imap.BodySectionName{}
+			items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, section.FetchItem()}
+			messages := make(chan *imap.Message)
+			seqSet.AddNum(chunk...)
+			go func() {
+				if err := imapServer.cliente.UidFetch(seqSet, items, messages); err != nil {
+				}
+			}()
+			for message := range messages {
+				if message != nil {
+					messageSizes[message.Envelope.Subject] = message.Size
+				}
 			}
+			time.Sleep(8 * time.Second)
 		}
 	}
 
@@ -216,9 +233,9 @@ func (imapServer *ImapServer) GetTopTenBiggestMails(mailbox string) error {
 
     sort.Sort(sort.Reverse(es))
 
-	pterm.Printfln("Top 10 biggest Mails in mailbox %s:", mailbox)
+	pterm.Printfln("Top " +  strconv.Itoa(amount) + " biggest Mails in mailbox %s:", mailbox)
     for count, e := range es {
-		if count < 10 {
+		if count < amount {
 			pterm.Printfln("Subject: %s: %d MB size", e.key, e.val / (1024 * 1024))
 		}
     }
