@@ -210,7 +210,7 @@ func (imapServer *ImapServer) GetTopTenBiggestMails(mailbox string, amount int) 
 		for _, chunk := range chunks {
 			seqSet := new(imap.SeqSet)
 			section := &imap.BodySectionName{}
-			items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, section.FetchItem()}
+			items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, section.FetchItem(), imap.FetchRFC822Size}
 			messages := make(chan *imap.Message)
 			seqSet.AddNum(chunk...)
 			go func() {
