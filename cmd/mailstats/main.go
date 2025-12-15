@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"strconv"
 	"time"
 
@@ -14,13 +15,17 @@ import (
 func main() {
 	mailbox := "INBOX"
 	amount := 10
+	hostname, err := os.Hostname()
+	if err != nil {
+		pterm.Printfln("%s", "Failed to get Hostname: " + err.Error())
+	}
 	options := []string{"List Mailboxes", "Select Mailbox", "Select amount of Mails shown", "List Top Sender", "List Top biggest Mails", "Exit"}
 	pterm.Printfln("Please provide the path to the config file:")
 	configFilePath, _ := pterm.DefaultInteractiveTextInput.WithDefaultValue("config.json").Show()
 	pterm.Println()
 	
 	configuration := Configuration.CreateNewConfiguration()
-	configHandler.GetConfig("localFile", configFilePath, &configuration, "File not found")
+	configHandler.GetConfig("localFile", configFilePath, &configuration, hostname)
 	selectedOption := ""
 	for selectedOption != "Exit" {
 		pterm.Printfln("Selected Mailbox: %s", mailbox)
